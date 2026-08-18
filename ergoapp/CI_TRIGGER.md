@@ -1,2 +1,2 @@
-ErgoAngle V2 build verification trigger.
-AndroidX retry 1.
+ErgoAngle V3 consumer build verification trigger.
+Desk worker + student posture coach.
