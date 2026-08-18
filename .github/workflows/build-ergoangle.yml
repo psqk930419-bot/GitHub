@@ -43,7 +43,11 @@ jobs:
 
       - name: Restore ErgoAngle project
         run: |
-          base64 -d ergoangle/ErgoAngle_MVP_Android.zip.b64 > ErgoAngle_MVP_Android.zip
+          cat ergoangle/parts/part00.b64 ergoangle/parts/part01.b64 ergoangle/parts/part02.b64 ergoangle/parts/part03.b64 ergoangle/parts/part04.b64 > ErgoAngle_MVP_Android.zip.b64
+          test "$(wc -c < ErgoAngle_MVP_Android.zip.b64)" -eq 26380
+          base64 -d ErgoAngle_MVP_Android.zip.b64 > ErgoAngle_MVP_Android.zip
+          echo '3c08c53ca10ccfdcf281fe6568fa993ec576d044cc47a08329964c1f88b7c358  ErgoAngle_MVP_Android.zip' | sha256sum -c -
+          unzip -t ErgoAngle_MVP_Android.zip
           unzip -q ErgoAngle_MVP_Android.zip
           mkdir -p ErgoAngle/app/src/main/assets
           test -f ErgoAngle/settings.gradle
