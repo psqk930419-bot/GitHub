@@ -12,6 +12,7 @@ on:
   pull_request:
     branches:
       - main
+      - ergoangle-apk
     paths:
       - 'ergoapp/**'
       - 'build.gradle'
