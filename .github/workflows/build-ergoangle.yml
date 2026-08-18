@@ -1,9 +1,10 @@
-name: Build ErgoAngle V2 APK
+name: Build ErgoAngle Desk V3 APK
 
 on:
   push:
     branches:
       - ergoangle-apk
+      - ergoangle-consumer-v3
     paths:
       - 'ergoapp/**'
       - 'build.gradle'
@@ -53,7 +54,7 @@ jobs:
             https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task
           test -s ergoapp/src/main/assets/pose_landmarker_lite.task
 
-      - name: Build ErgoAngle V2 debug APK
+      - name: Build ErgoAngle Desk V3 debug APK
         run: gradle --stacktrace :ergoapp:assembleDebug
 
       - name: Collect APK
@@ -61,12 +62,12 @@ jobs:
           mkdir -p dist
           APK=$(find ergoapp/build/outputs/apk/debug -name '*.apk' | head -n 1)
           test -n "$APK"
-          cp "$APK" dist/ErgoAngle-V2-debug.apk
-          sha256sum dist/ErgoAngle-V2-debug.apk > dist/ErgoAngle-V2-debug.apk.sha256
+          cp "$APK" dist/ErgoAngle-Desk-V3-debug.apk
+          sha256sum dist/ErgoAngle-Desk-V3-debug.apk > dist/ErgoAngle-Desk-V3-debug.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ErgoAngle-V2-APK
+          name: ErgoAngle-Desk-V3-APK
           path: dist/*
           retention-days: 30
