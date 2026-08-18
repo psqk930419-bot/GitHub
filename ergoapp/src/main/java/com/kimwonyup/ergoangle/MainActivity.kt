@@ -6,8 +6,15 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -32,62 +39,78 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
     private lateinit var viewFinder: PreviewView
     private lateinit var overlay: PoseOverlayView
     private lateinit var guideText: TextView
-    private lateinit var burdenText: TextView
-    private lateinit var neckText: TextView
-    private lateinit var trunkText: TextView
-    private lateinit var neckExposureText: TextView
-    private lateinit var trunkExposureText: TextView
-    private lateinit var staticText: TextView
-    private lateinit var repetitionText: TextView
+    private lateinit var scoreText: TextView
+    private lateinit var scoreSubText: TextView
     private lateinit var sessionText: TextView
-    private lateinit var fpsText: TextView
+    private lateinit var statusText: TextView
+    private lateinit var goodText: TextView
+    private lateinit var badRunText: TextView
+    private lateinit var angleDetailText: TextView
+    private lateinit var modeButton: Button
+    private lateinit var focusButton: Button
+    private lateinit var cameraButton: Button
+    private lateinit var startPauseButton: Button
 
     private lateinit var backgroundExecutor: ExecutorService
     private var poseHelper: PoseLandmarkerHelper? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private val smoother = AngleSmoother()
-    private val exposureTracker = ExposureTracker()
-    private val bendTracker = BendCycleTracker()
+    private val deskTracker = DeskPostureTracker()
     private var latestAngles: ErgoAngles? = null
-    private var lastToastMs = 0L
-    private var pendingCsv = ""
 
-    private val requestCameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) startPipeline() else Toast.makeText(this, "카메라 권한이 필요합니다.", Toast.LENGTH_LONG).show()
+    private var mode = DeskMode.WORK
+    private var focusMinutes = 50
+    private var isSessionRunning = false
+    private var isFrontCamera = true
+    private var sessionAccumulatedMs = 0L
+    private var sessionStartedAtMs = 0L
+    private var focusReminderSent = false
+    private var lastBadAlertMs = 0L
+    private var lastToastMs = 0L
+
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private val ticker = object : Runnable {
+        override fun run() {
+            updateClockUi()
+            uiHandler.postDelayed(this, 1000L)
+        }
     }
 
-    private val saveCsvLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
-        if (uri != null) {
-            try {
-                contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(pendingCsv) }
-                Toast.makeText(this, "CSV를 저장했습니다.", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Toast.makeText(this, "CSV 저장 실패: ${e.message}", Toast.LENGTH_LONG).show()
-            }
-        }
+    private val requestCameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startPipeline() else Toast.makeText(this, "자세 분석을 위해 카메라 권한이 필요합니다.", Toast.LENGTH_LONG).show()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_main)
+
         viewFinder = findViewById(R.id.viewFinder)
         overlay = findViewById(R.id.overlay)
         guideText = findViewById(R.id.guideText)
-        burdenText = findViewById(R.id.burdenText)
-        neckText = findViewById(R.id.neckText)
-        trunkText = findViewById(R.id.trunkText)
-        neckExposureText = findViewById(R.id.neckExposureText)
-        trunkExposureText = findViewById(R.id.trunkExposureText)
-        staticText = findViewById(R.id.staticText)
-        repetitionText = findViewById(R.id.repetitionText)
+        scoreText = findViewById(R.id.scoreText)
+        scoreSubText = findViewById(R.id.scoreSubText)
         sessionText = findViewById(R.id.sessionText)
-        fpsText = findViewById(R.id.fpsText)
-        findViewById<Button>(R.id.resetButton).setOnClickListener { resetMeasurement() }
+        statusText = findViewById(R.id.statusText)
+        goodText = findViewById(R.id.goodText)
+        badRunText = findViewById(R.id.badRunText)
+        angleDetailText = findViewById(R.id.angleDetailText)
+        modeButton = findViewById(R.id.modeButton)
+        focusButton = findViewById(R.id.focusButton)
+        cameraButton = findViewById(R.id.cameraButton)
+        startPauseButton = findViewById(R.id.startPauseButton)
+
+        modeButton.setOnClickListener { toggleMode() }
+        focusButton.setOnClickListener { chooseFocusTime() }
+        cameraButton.setOnClickListener { switchCamera() }
+        startPauseButton.setOnClickListener { toggleSession() }
         findViewById<Button>(R.id.reportButton).setOnClickListener { showReport() }
-        findViewById<Button>(R.id.csvButton).setOnClickListener { exportCsv() }
+        findViewById<Button>(R.id.resetButton).setOnClickListener { resetSession() }
 
         backgroundExecutor = Executors.newSingleThreadExecutor()
-        resetMeasurement()
+        resetSession()
+        uiHandler.post(ticker)
+
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startPipeline()
         else requestCameraPermission.launch(Manifest.permission.CAMERA)
     }
@@ -99,22 +122,82 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
         }
     }
 
-    private fun resetMeasurement() {
+    private fun resetSession() {
         val now = SystemClock.elapsedRealtime()
+        isSessionRunning = false
+        sessionAccumulatedMs = 0L
+        sessionStartedAtMs = 0L
+        focusReminderSent = false
+        lastBadAlertMs = 0L
         smoother.reset()
-        exposureTracker.reset(now)
-        bendTracker.reset()
+        deskTracker.reset(now)
         latestAngles = null
-        burdenText.text = "자세 인식 대기 중"
-        neckText.text = "목 --°"
-        trunkText.text = "몸통 --°"
-        neckExposureText.text = "목 >20°  00:00 · 0%"
-        trunkExposureText.text = "몸통 >20° 0% · >45° 0% · >60° 0%"
-        staticText.text = "정적 자세 ≥1분: 없음"
-        repetitionText.text = "몸통 굴곡 반복: 0회/분"
-        sessionText.text = "측정 00:00"
-        guideText.text = "몸 전체 옆면이 보이도록 2–3 m 거리에서 촬영"
+
+        scoreText.text = "자세점수 --"
+        scoreSubText.text = "세션을 시작하면 자동으로 계산합니다"
+        statusText.text = "현재 자세: 카메라 위치를 맞춰주세요"
+        goodText.text = "바른 자세 --% · 나쁜 자세 --%"
+        badRunText.text = "연속 나쁜 자세 00:00 · 45초부터 조용히 진동"
+        angleDetailText.text = "상세: 목 --° · 몸통 --°"
+        startPauseButton.text = "세션 시작"
+        modeButton.text = mode.label
+        focusButton.text = "집중 ${focusMinutes}분"
+        cameraButton.text = if (isFrontCamera) "전면 카메라" else "후면 카메라"
+        guideText.text = "폰을 옆에 세우고 귀·어깨·골반이 보이게 맞춰주세요"
         overlay.clear()
+        updateClockUi()
+    }
+
+    private fun toggleMode() {
+        if (isSessionRunning) {
+            Toast.makeText(this, "세션을 일시정지한 뒤 모드를 바꿔주세요.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        mode = if (mode == DeskMode.WORK) DeskMode.STUDY else DeskMode.WORK
+        modeButton.text = mode.label
+        Toast.makeText(this, if (mode == DeskMode.WORK) "업무용 자세 코칭" else "공부 자세 + 집중 세션", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun chooseFocusTime() {
+        if (isSessionRunning) {
+            Toast.makeText(this, "세션을 일시정지한 뒤 집중시간을 바꿔주세요.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val values = intArrayOf(25, 50, 90)
+        val labels = arrayOf("25분 · 짧은 집중", "50분 · 기본", "90분 · 긴 집중")
+        AlertDialog.Builder(this)
+            .setTitle("집중 세션 시간")
+            .setItems(labels) { _, which ->
+                focusMinutes = values[which]
+                focusReminderSent = false
+                focusButton.text = "집중 ${focusMinutes}분"
+                updateClockUi()
+            }.show()
+    }
+
+    private fun toggleSession() {
+        val now = SystemClock.elapsedRealtime()
+        if (!isSessionRunning) {
+            isSessionRunning = true
+            sessionStartedAtMs = now
+            deskTracker.resume(now)
+            startPauseButton.text = "일시정지"
+            scoreSubText.text = "자세를 분석하고 있습니다"
+            Toast.makeText(this, "${mode.label} 시작", Toast.LENGTH_SHORT).show()
+        } else {
+            sessionAccumulatedMs += now - sessionStartedAtMs
+            isSessionRunning = false
+            sessionStartedAtMs = 0L
+            startPauseButton.text = "계속하기"
+            scoreSubText.text = "일시정지됨"
+        }
+        updateClockUi()
+    }
+
+    private fun switchCamera() {
+        isFrontCamera = !isFrontCamera
+        cameraButton.text = if (isFrontCamera) "전면 카메라" else "후면 카메라"
+        bindCameraUseCases()
     }
 
     private fun setUpCamera() {
@@ -138,13 +221,24 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
             if (helper == null) image.close() else helper.detectLiveStream(image)
         }
         provider.unbindAll()
-        provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analyzer)
-        preview.setSurfaceProvider(viewFinder.surfaceProvider)
+        val selector = if (isFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+        try {
+            provider.bindToLifecycle(this, selector, preview, analyzer)
+            preview.setSurfaceProvider(viewFinder.surfaceProvider)
+        } catch (e: Exception) {
+            isFrontCamera = !isFrontCamera
+            cameraButton.text = if (isFrontCamera) "전면 카메라" else "후면 카메라"
+            Toast.makeText(this, "선택한 카메라를 사용할 수 없어 다른 카메라로 전환했습니다.", Toast.LENGTH_SHORT).show()
+            val fallback = if (isFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+            provider.bindToLifecycle(this, fallback, preview, analyzer)
+            preview.setSurfaceProvider(viewFinder.surfaceProvider)
+        }
     }
 
     override fun onResults(resultBundle: PoseLandmarkerHelper.ResultBundle) {
         val pose = resultBundle.result.landmarks().firstOrNull() ?: return
         if (pose.size < 33) return
+
         val ear = midpoint(pose, 7, 8)
         val shoulder = midpoint(pose, 11, 12)
         val hip = midpoint(pose, 23, 24)
@@ -152,27 +246,38 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
         val angles = smoother.update(raw)
         latestAngles = angles
         val now = SystemClock.elapsedRealtime()
-        exposureTracker.update(now, angles)
-        bendTracker.update(now, angles.trunkFlexionDeg)
-        val snap = exposureTracker.snapshot(now)
-        val cycles = bendTracker.cyclesLastMinute(now)
-        val profile = sideProfileHeuristic(pose)
+        if (isSessionRunning) deskTracker.update(now, angles)
+        val snap = deskTracker.snapshot()
+        val sideProfile = sideProfileHeuristic(pose)
+
+        if (isSessionRunning && snap.currentBadRunMs >= BAD_POSTURE_ALERT_MS && now - lastBadAlertMs >= BAD_POSTURE_REPEAT_MS) {
+            lastBadAlertMs = now
+            runOnUiThread {
+                vibrateBadPosture()
+                Toast.makeText(this, "자세가 오래 무너졌어요. 목과 몸통을 한 번 펴주세요.", Toast.LENGTH_SHORT).show()
+            }
+        }
 
         runOnUiThread {
-            overlay.setResults(pose, resultBundle.inputImageWidth, resultBundle.inputImageHeight, angles)
-            neckText.text = String.format(Locale.KOREA, "목 %.0f° · %s", angles.neckFlexionDeg, shortLabel(angles.neckLevel))
-            trunkText.text = String.format(Locale.KOREA, "몸통 %.0f° · %s", angles.trunkFlexionDeg, shortLabel(angles.trunkLevel))
-            neckText.setTextColor(ContextCompat.getColor(this, levelColor(angles.neckLevel)))
-            trunkText.setTextColor(ContextCompat.getColor(this, levelColor(angles.trunkLevel)))
-            burdenText.text = "현재 자세: ${angles.overallLevel.label}"
-            burdenText.setTextColor(ContextCompat.getColor(this, levelColor(angles.overallLevel)))
-            neckExposureText.text = String.format(Locale.KOREA, "목 >20°  %s · %d%%  (최장 %s)", formatDuration(snap.neck20Ms), snap.neck20Pct, formatDuration(snap.maxContinuousNeck20Ms))
-            trunkExposureText.text = String.format(Locale.KOREA, "몸통 >20° %d%% · >45° %d%% · >60° %d%%", snap.trunk20Pct, snap.trunk45Pct, snap.trunk60Pct)
-            staticText.text = if (snap.currentStaticMs >= 60_000L) "정적 자세 ≥1분: 감지됨 · 현재 ${formatDuration(snap.currentStaticMs)}" else "정적 자세: 현재 ${formatDuration(snap.currentStaticMs)} · 1분부터 표시"
-            repetitionText.text = "몸통 굴곡 반복: ${cycles}회/분${if (cycles > 4) " · 반복 높음" else ""}"
-            sessionText.text = "측정 ${formatDuration(snap.totalMs)}"
-            fpsText.text = "분석 ${resultBundle.inferenceTimeMs} ms"
-            guideText.text = if (profile) "측면 인식 양호 · 목/몸통 자세노출 분석 중" else "몸을 더 옆으로 돌려 어깨·골반이 겹치게 해주세요"
+            overlay.setResults(pose, resultBundle.inputImageWidth, resultBundle.inputImageHeight, angles, mirrored = isFrontCamera)
+            angleDetailText.text = String.format(Locale.KOREA, "상세: 목 %.0f° · 몸통 %.0f°", angles.neckFlexionDeg, angles.trunkFlexionDeg)
+            val currentLabel = friendlyCurrentLabel(angles)
+            statusText.text = "현재 자세: $currentLabel"
+            statusText.setTextColor(ContextCompat.getColor(this, levelColor(angles.overallLevel)))
+
+            if (snap.observedMs >= 2000L) {
+                scoreText.text = "자세점수 ${snap.postureScore}"
+                scoreText.setTextColor(ContextCompat.getColor(this, scoreColor(snap.postureScore)))
+                scoreSubText.text = scoreMessage(snap.postureScore)
+                goodText.text = "바른 자세 ${snap.goodPct}% · 나쁜 자세 ${snap.badPct}%"
+                badRunText.text = "연속 나쁜 자세 ${formatDuration(snap.currentBadRunMs)} · 최장 ${formatDuration(snap.maxBadRunMs)}"
+            }
+
+            guideText.text = when {
+                !sideProfile -> "몸을 더 옆으로 돌려 어깨와 골반이 겹치게 해주세요"
+                !isSessionRunning -> "측면 인식 양호 · 세션 시작을 누르면 자세 코칭을 시작합니다"
+                else -> "측면 인식 양호 · 영상 저장 없이 기기에서 실시간 분석 중"
+            }
         }
     }
 
@@ -183,72 +288,75 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
         runOnUiThread { Toast.makeText(this, error, Toast.LENGTH_SHORT).show() }
     }
 
+    private fun updateClockUi() {
+        val elapsed = sessionElapsedMs()
+        sessionText.text = "${formatDuration(elapsed)} / ${focusMinutes}:00"
+        if (isSessionRunning && !focusReminderSent && elapsed >= focusMinutes * 60_000L) {
+            focusReminderSent = true
+            vibrateFocusComplete()
+            Toast.makeText(this, "집중 세션 완료! 2–5분 일어나 움직여보세요.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun sessionElapsedMs(): Long {
+        if (!isSessionRunning || sessionStartedAtMs == 0L) return sessionAccumulatedMs
+        return sessionAccumulatedMs + (SystemClock.elapsedRealtime() - sessionStartedAtMs)
+    }
+
     private fun showReport() {
-        val now = SystemClock.elapsedRealtime()
-        val snap = exposureTracker.snapshot(now)
-        val text = buildReport(snap, latestAngles, bendTracker.cyclesLastMinute(now))
-        AlertDialog.Builder(this).setTitle("자세노출 요약").setMessage(text)
+        val s = deskTracker.snapshot()
+        val a = latestAngles
+        val report = buildString {
+            appendLine("${mode.label} · 집중 목표 ${focusMinutes}분")
+            appendLine("세션 시간: ${formatDuration(sessionElapsedMs())}")
+            if (s.observedMs > 0L) {
+                appendLine("자세점수: ${s.postureScore}/100")
+                appendLine("바른 자세: ${s.goodPct}%")
+                appendLine("나쁜 자세: ${s.badPct}%")
+                appendLine("강한 자세부담 구간: ${s.severePct}%")
+                appendLine("최장 연속 나쁜 자세: ${formatDuration(s.maxBadRunMs)}")
+                appendLine()
+                appendLine("[상세 노출]")
+                appendLine("목 ≥20°: ${s.neck20Pct}%")
+                appendLine("몸통 ≥20°: ${s.trunk20Pct}%")
+                appendLine("몸통 ≥45°: ${s.trunk45Pct}%")
+                appendLine("몸통 ≥60°: ${s.trunk60Pct}%")
+            } else appendLine("아직 충분한 자세 데이터가 없습니다.")
+            if (a != null) appendLine("현재 측정: 목 %.0f° · 몸통 %.0f°".format(a.neckFlexionDeg, a.trunkFlexionDeg))
+            appendLine()
+            append("※ 자세점수는 카메라 기반 생활습관 피드백용 휴리스틱이며 질병 발생확률이나 임상 진단값이 아닙니다. 영상은 앱에서 저장하지 않습니다.")
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("이번 세션 요약")
+            .setMessage(report)
             .setPositiveButton("확인", null)
             .setNeutralButton("복사") { _, _ ->
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("ErgoAngle report", text))
-                Toast.makeText(this, "요약을 복사했습니다.", Toast.LENGTH_SHORT).show()
+                clipboard.setPrimaryClip(ClipData.newPlainText("ErgoAngle Desk report", report))
+                Toast.makeText(this, "세션 요약을 복사했습니다.", Toast.LENGTH_SHORT).show()
             }.show()
     }
 
-    private fun exportCsv() {
-        val now = SystemClock.elapsedRealtime()
-        val s = exposureTracker.snapshot(now)
-        val a = latestAngles
-        pendingCsv = buildString {
-            appendLine("metric,value,unit")
-            appendLine("session_duration,${s.totalMs / 1000.0},s")
-            appendLine("current_neck_angle,${a?.neckFlexionDeg ?: ""},deg")
-            appendLine("current_trunk_angle,${a?.trunkFlexionDeg ?: ""},deg")
-            appendLine("neck_over_20_duration,${s.neck20Ms / 1000.0},s")
-            appendLine("neck_over_20_percent,${s.neck20Pct},percent")
-            appendLine("trunk_over_20_percent,${s.trunk20Pct},percent")
-            appendLine("trunk_over_45_percent,${s.trunk45Pct},percent")
-            appendLine("trunk_over_60_percent,${s.trunk60Pct},percent")
-            appendLine("max_continuous_neck_over_20,${s.maxContinuousNeck20Ms / 1000.0},s")
-            appendLine("max_continuous_trunk_over_45,${s.maxContinuousTrunk45Ms / 1000.0},s")
-            appendLine("static_over_60_seconds_exposure,${s.staticOver60Ms / 1000.0},s")
-            appendLine("trunk_bend_cycles_last_minute,${bendTracker.cyclesLastMinute(now)},count_per_min")
-        }
-        saveCsvLauncher.launch("ErgoAngle_${System.currentTimeMillis()}.csv")
+    private fun friendlyCurrentLabel(a: ErgoAngles): String = when {
+        a.neckFlexionDeg < 20f && a.trunkFlexionDeg < 20f -> "좋아요"
+        a.neckFlexionDeg >= 30f || a.trunkFlexionDeg >= 45f -> "자세 리셋이 필요해요"
+        else -> "조금만 펴주세요"
     }
 
-    private fun buildReport(s: ExposureSnapshot, a: ErgoAngles?, cycles: Int): String = buildString {
-        appendLine("측정시간: ${formatDuration(s.totalMs)}")
-        if (a != null) {
-            appendLine("현재 목 자세각: %.0f°".format(a.neckFlexionDeg))
-            appendLine("현재 몸통 굴곡각: %.0f°".format(a.trunkFlexionDeg))
-        }
-        appendLine("목 >20° 노출: ${s.neck20Pct}% (${formatDuration(s.neck20Ms)})")
-        appendLine("몸통 >20° 노출: ${s.trunk20Pct}%")
-        appendLine("몸통 >45° 노출: ${s.trunk45Pct}%")
-        appendLine("몸통 >60° 노출: ${s.trunk60Pct}%")
-        appendLine("최장 연속 목 >20°: ${formatDuration(s.maxContinuousNeck20Ms)}")
-        appendLine("최장 연속 몸통 >45°: ${formatDuration(s.maxContinuousTrunk45Ms)}")
-        appendLine("현재 정적자세 지속: ${formatDuration(s.currentStaticMs)}")
-        appendLine("몸통 굴곡 반복: ${cycles}회/분")
-        appendLine()
-        append("※ 단일 RGB 카메라 기반 자세노출 선별값이며 질병 위험도나 임상 진단값이 아닙니다. 하중·파지·근사용을 직접 측정하지 않으므로 완전한 RULA/REBA 점수가 아닙니다.")
+    private fun scoreMessage(score: Int): String = when {
+        score >= 90 -> "아주 안정적으로 앉아 있어요"
+        score >= 80 -> "좋은 자세 흐름을 유지하고 있어요"
+        score >= 65 -> "가끔 자세가 무너져요"
+        score >= 45 -> "앞으로 숙이는 시간이 꽤 길어요"
+        else -> "자세를 자주 리셋해주는 게 좋아요"
     }
 
-    private fun midpoint(pose: List<NormalizedLandmark>, a: Int, b: Int): Point2 = Point2((pose[a].x() + pose[b].x()) / 2f, (pose[a].y() + pose[b].y()) / 2f)
-
-    private fun sideProfileHeuristic(pose: List<NormalizedLandmark>): Boolean {
-        val shoulderGap = abs(pose[11].x() - pose[12].x())
-        val hipGap = abs(pose[23].x() - pose[24].x())
-        return (shoulderGap + hipGap) / 2f < 0.13f
-    }
-
-    private fun shortLabel(level: PostureLevel): String = when (level) {
-        PostureLevel.LOW -> "낮음"
-        PostureLevel.MILD -> "경미"
-        PostureLevel.HIGH -> "높음"
-        PostureLevel.VERY_HIGH -> "매우 높음"
+    private fun scoreColor(score: Int): Int = when {
+        score >= 80 -> R.color.good
+        score >= 65 -> R.color.warn
+        score >= 45 -> R.color.orange
+        else -> R.color.bad
     }
 
     private fun levelColor(level: PostureLevel): Int = when (level) {
@@ -258,19 +366,54 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
         PostureLevel.VERY_HIGH -> R.color.bad
     }
 
+    private fun midpoint(pose: List<NormalizedLandmark>, a: Int, b: Int): Point2 =
+        Point2((pose[a].x() + pose[b].x()) / 2f, (pose[a].y() + pose[b].y()) / 2f)
+
+    private fun sideProfileHeuristic(pose: List<NormalizedLandmark>): Boolean {
+        val shoulderGap = abs(pose[11].x() - pose[12].x())
+        val hipGap = abs(pose[23].x() - pose[24].x())
+        return (shoulderGap + hipGap) / 2f < 0.13f
+    }
+
+    private fun vibrateBadPosture() {
+        val vibrator = getVibrator()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) vibrator.vibrate(VibrationEffect.createOneShot(180L, VibrationEffect.DEFAULT_AMPLITUDE))
+        else @Suppress("DEPRECATION") vibrator.vibrate(180L)
+    }
+
+    private fun vibrateFocusComplete() {
+        val vibrator = getVibrator()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0L, 120L, 100L, 180L), -1))
+        else @Suppress("DEPRECATION") vibrator.vibrate(longArrayOf(0L, 120L, 100L, 180L), -1)
+    }
+
+    private fun getVibrator(): Vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+    } else {
+        @Suppress("DEPRECATION")
+        getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+    }
+
     private fun formatDuration(ms: Long): String {
         val totalSeconds = ms / 1000L
         val hours = totalSeconds / 3600L
         val minutes = (totalSeconds % 3600L) / 60L
         val seconds = totalSeconds % 60L
-        return if (hours > 0) String.format(Locale.KOREA, "%02d:%02d:%02d", hours, minutes, seconds) else String.format(Locale.KOREA, "%02d:%02d", minutes, seconds)
+        return if (hours > 0) String.format(Locale.KOREA, "%02d:%02d:%02d", hours, minutes, seconds)
+        else String.format(Locale.KOREA, "%02d:%02d", minutes, seconds)
     }
 
     override fun onDestroy() {
+        uiHandler.removeCallbacks(ticker)
         cameraProvider?.unbindAll()
         backgroundExecutor.execute { poseHelper?.clear() }
         backgroundExecutor.shutdown()
         try { backgroundExecutor.awaitTermination(500, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { }
         super.onDestroy()
+    }
+
+    companion object {
+        private const val BAD_POSTURE_ALERT_MS = 45_000L
+        private const val BAD_POSTURE_REPEAT_MS = 90_000L
     }
 }
