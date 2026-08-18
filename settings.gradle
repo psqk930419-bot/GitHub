@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = 'WetEngine'
 include ':app'
+include ':ergoapp'
