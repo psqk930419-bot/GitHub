@@ -8,7 +8,7 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'com.kimwonyup.ergoangle'
+        applicationId 'com.kimwonyup.ergoangle.desk'
         minSdk 24
         targetSdk 35
         versionCode 3
