@@ -1,17 +1,21 @@
-name: Build ErgoAngle APK
+name: Build ErgoAngle V2 APK
 
 on:
   push:
     branches:
       - ergoangle-apk
     paths:
-      - 'ergoangle/**'
+      - 'ergoapp/**'
+      - 'build.gradle'
+      - 'settings.gradle'
       - '.github/workflows/build-ergoangle.yml'
   pull_request:
     branches:
       - main
     paths:
-      - 'ergoangle/**'
+      - 'ergoapp/**'
+      - 'build.gradle'
+      - 'settings.gradle'
       - '.github/workflows/build-ergoangle.yml'
   workflow_dispatch:
 
@@ -39,28 +43,30 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.14.3'
+          gradle-version: '8.10.2'
 
-      - name: Restore ErgoAngle project
+      - name: Download MediaPipe pose model
         run: |
-          base64 -d ergoangle/ErgoAngle_MVP_Android.zip.b64 > ErgoAngle_MVP_Android.zip
-          unzip -q ErgoAngle_MVP_Android.zip
-          mkdir -p ErgoAngle/app/src/main/assets
-          test -f ErgoAngle/settings.gradle
+          mkdir -p ergoapp/src/main/assets
+          curl -L --fail --retry 3 \
+            -o ergoapp/src/main/assets/pose_landmarker_lite.task \
+            https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task
+          test -s ergoapp/src/main/assets/pose_landmarker_lite.task
 
-      - name: Build debug APK
-        working-directory: ErgoAngle
-        run: gradle --stacktrace assembleDebug
+      - name: Build ErgoAngle V2 debug APK
+        run: gradle --stacktrace :ergoapp:assembleDebug
 
       - name: Collect APK
         run: |
           mkdir -p dist
-          cp ErgoAngle/app/build/outputs/apk/debug/app-debug.apk dist/ErgoAngle-debug.apk
-          sha256sum dist/ErgoAngle-debug.apk > dist/ErgoAngle-debug.apk.sha256
+          APK=$(find ergoapp/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          test -n "$APK"
+          cp "$APK" dist/ErgoAngle-V2-debug.apk
+          sha256sum dist/ErgoAngle-V2-debug.apk > dist/ErgoAngle-V2-debug.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ErgoAngle-APK
+          name: ErgoAngle-V2-APK
           path: dist/*
           retention-days: 30
