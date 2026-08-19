@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/black">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/viewFinder"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:implementationMode="compatible"
+        app:scaleType="fillCenter"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <com.kimwonyup.ergoangle.PoseOverlayView
+        android:id="@+id/overlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <TextView
+        android:id="@+id/guideText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:background="@drawable/panel_background"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="9dp"
+        android:paddingBottom="9dp"
+        android:text="몸 전체 옆면이 보이도록 2–3 m 거리에서 촬영"
+        android:textColor="@color/white"
+        android:textSize="13sp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <ScrollView
+        android:id="@+id/resultPanel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_margin="12dp"
+        android:background="@drawable/panel_background"
+        android:fillViewport="true"
+        android:maxHeight="360dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="15dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/burdenText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="자세 인식 대기 중"
+                    android:textColor="@color/white"
+                    android:textSize="21sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/sessionText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="측정 00:00"
+                    android:textColor="#DDE2EA"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/neckText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="9dp"
+                android:text="목 --°"
+                android:textColor="@color/white"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/trunkText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:text="몸통 --°"
+                android:textColor="@color/white"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="9dp"
+                android:layout_marginBottom="7dp"
+                android:background="#35FFFFFF" />
+
+            <TextView
+                android:id="@+id/neckExposureText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="목 >20°  00:00 · 0%"
+                android:textColor="#E8EDF5"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/trunkExposureText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="몸통 >20° 0% · >45° 0% · >60° 0%"
+                android:textColor="#E8EDF5"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/staticText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="정적 자세 ≥1분: 없음"
+                android:textColor="#DDE2EA"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/repetitionText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:text="몸통 굴곡 반복: 0회/분"
+                android:textColor="#DDE2EA"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/fpsText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="분석 -- ms"
+                    android:textColor="#AEB7C4"
+                    android:textSize="11sp" />
+
+                <Button
+                    android:id="@+id/reportButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minHeight="38dp"
+                    android:text="요약"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/csvButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minHeight="38dp"
+                    android:text="CSV"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/resetButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minHeight="38dp"
+                    android:text="초기화"
+                    android:textAllCaps="false" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="※ 단일 RGB 카메라 기반 자세노출 선별 도구입니다. 질병 위험도·임상 진단값이 아니며, 하중·파지·근사용을 직접 측정하지 않아 완전한 RULA/REBA 점수가 아닙니다."
+                android:textColor="#9FA6B2"
+                android:textSize="10sp" />
+        </LinearLayout>
+    </ScrollView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
