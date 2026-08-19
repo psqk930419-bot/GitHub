@@ -10,6 +10,15 @@ on:
       - 'build.gradle'
       - 'settings.gradle'
       - '.github/workflows/build-ergoangle.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'ergoapp/**'
+      - 'tools/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - '.github/workflows/build-ergoangle.yml'
   workflow_dispatch:
 
 jobs:
