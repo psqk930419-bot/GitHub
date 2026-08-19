@@ -11,48 +11,53 @@ import kotlin.math.max
 
 class PoseOverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
     private val skeletonPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xB8FFFFFF.toInt(); strokeWidth = 4f; style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
+        color = 0xCCFFFFFF.toInt(); strokeWidth = 4f; style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
     }
     private val pointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFFFFFFFF.toInt(); strokeWidth = 8f; strokeCap = Paint.Cap.ROUND; style = Paint.Style.STROKE
     }
     private val referencePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0x66FFFFFF.toInt(); strokeWidth = 2f; style = Paint.Style.STROKE
+        color = 0x88FFFFFF.toInt(); strokeWidth = 2f; style = Paint.Style.STROKE
     }
     private val heatPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         strokeWidth = 18f; strokeCap = Paint.Cap.ROUND; style = Paint.Style.STROKE
     }
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFFFFFFF.toInt(); textSize = 31f; style = Paint.Style.FILL
+        color = 0xFFFFFFFF.toInt(); textSize = 32f; style = Paint.Style.FILL
         setShadowLayer(5f, 0f, 2f, 0xCC000000.toInt())
     }
 
     private var landmarks: List<NormalizedLandmark>? = null
     private var imageWidth = 1
     private var imageHeight = 1
-    private var angles: ErgoAngles? = null
+    private var reading: PersonalPostureReading? = null
     private var mirrored = false
 
-    fun setResults(result: List<NormalizedLandmark>, inputWidth: Int, inputHeight: Int, angles: ErgoAngles, mirrored: Boolean = false) {
+    fun setResults(
+        result: List<NormalizedLandmark>,
+        inputWidth: Int,
+        inputHeight: Int,
+        reading: PersonalPostureReading?,
+        mirrored: Boolean
+    ) {
         landmarks = result
         imageWidth = inputWidth.coerceAtLeast(1)
         imageHeight = inputHeight.coerceAtLeast(1)
-        this.angles = angles
+        this.reading = reading
         this.mirrored = mirrored
         invalidate()
     }
 
     fun clear() {
         landmarks = null
-        angles = null
+        reading = null
         invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val lm = landmarks ?: return
-        val a = angles ?: return
         if (lm.size < 33) return
 
         val scale = max(width.toFloat() / imageWidth, height.toFloat() / imageHeight)
@@ -63,8 +68,8 @@ class PoseOverlayView(context: Context, attrs: AttributeSet?) : View(context, at
 
         fun p(index: Int): Pt {
             val m = lm[index]
-            val nx = if (mirrored) 1f - m.x() else m.x()
-            return Pt(nx * imageWidth * scale + dx, m.y() * imageHeight * scale + dy)
+            val sourceX = if (mirrored) 1f - m.x() else m.x()
+            return Pt(sourceX * imageWidth * scale + dx, m.y() * imageHeight * scale + dy)
         }
         fun mid(i: Int, j: Int): Pt {
             val p1 = p(i); val p2 = p(j)
@@ -86,29 +91,38 @@ class PoseOverlayView(context: Context, attrs: AttributeSet?) : View(context, at
         val ear = mid(7, 8)
         val shoulder = mid(11, 12)
         val hip = mid(23, 24)
+        val r = reading
 
-        fillPaint.color = withAlpha(levelColor(a.trunkLevel), 42)
-        val path = Path().apply {
-            moveTo(shoulder.x - 28f, shoulder.y)
-            lineTo(shoulder.x + 28f, shoulder.y)
-            lineTo(hip.x + 38f, hip.y)
-            lineTo(hip.x - 38f, hip.y)
-            close()
+        if (r != null) {
+            fillPaint.color = withAlpha(levelColor(r.trunkLevel), 48)
+            val path = Path().apply {
+                moveTo(shoulder.x - 28f, shoulder.y)
+                lineTo(shoulder.x + 28f, shoulder.y)
+                lineTo(hip.x + 38f, hip.y)
+                lineTo(hip.x - 38f, hip.y)
+                close()
+            }
+            canvas.drawPath(path, fillPaint)
+
+            heatPaint.color = levelColor(r.headLevel)
+            canvas.drawLine(ear.x, ear.y, shoulder.x, shoulder.y, heatPaint)
+            heatPaint.color = levelColor(r.trunkLevel)
+            canvas.drawLine(shoulder.x, shoulder.y, hip.x, hip.y, heatPaint)
+
+            textPaint.color = levelColor(r.headLevel)
+            canvas.drawText("머리 전방 +${r.headForwardDeltaPct}%", ear.x + 18f, (ear.y + shoulder.y) / 2f, textPaint)
+            textPaint.color = levelColor(r.trunkLevel)
+            canvas.drawText("상체 +%.0f°".format(r.trunkDeltaDeg), shoulder.x + 22f, (shoulder.y + hip.y) / 2f, textPaint)
+        } else {
+            heatPaint.color = 0xCCFFFFFF.toInt()
+            canvas.drawLine(ear.x, ear.y, shoulder.x, shoulder.y, heatPaint)
+            canvas.drawLine(shoulder.x, shoulder.y, hip.x, hip.y, heatPaint)
+            textPaint.color = 0xFFFFFFFF.toInt()
+            canvas.drawText("기준 자세 측정 중", shoulder.x + 20f, shoulder.y - 24f, textPaint)
         }
-        canvas.drawPath(path, fillPaint)
-
-        heatPaint.color = levelColor(a.neckLevel)
-        canvas.drawLine(ear.x, ear.y, shoulder.x, shoulder.y, heatPaint)
-        heatPaint.color = levelColor(a.trunkLevel)
-        canvas.drawLine(shoulder.x, shoulder.y, hip.x, hip.y, heatPaint)
 
         canvas.drawLine(hip.x, hip.y, hip.x, hip.y - 180f, referencePaint)
         listOf(ear, shoulder, hip).forEach { canvas.drawPoint(it.x, it.y, pointPaint) }
-
-        textPaint.color = levelColor(a.neckLevel)
-        canvas.drawText("목 %.0f°".format(a.neckFlexionDeg), ear.x + 18f, (ear.y + shoulder.y) / 2f, textPaint)
-        textPaint.color = levelColor(a.trunkLevel)
-        canvas.drawText("몸통 %.0f°".format(a.trunkFlexionDeg), shoulder.x + 22f, (shoulder.y + hip.y) / 2f, textPaint)
     }
 
     private fun levelColor(level: PostureLevel): Int = when (level) {
