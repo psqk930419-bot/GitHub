@@ -1,3 +1,3 @@
-ErgoAngle V3 consumer build verification trigger.
-Desk worker + student posture coach.
-Retargeted CI verification.
+ErgoAngle V3.2 final verification trigger.
+Signed forward-trunk engine + personalized baseline.
+Kotlin unit tests + 10-pose MediaPipe regression suite.
