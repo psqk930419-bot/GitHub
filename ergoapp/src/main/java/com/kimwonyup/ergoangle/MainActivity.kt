@@ -41,6 +41,7 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
     private lateinit var guideText: TextView
     private lateinit var scoreText: TextView
     private lateinit var scoreSubText: TextView
+    private lateinit var calibrationText: TextView
     private lateinit var sessionText: TextView
     private lateinit var statusText: TextView
     private lateinit var goodText: TextView
@@ -49,14 +50,18 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
     private lateinit var modeButton: Button
     private lateinit var focusButton: Button
     private lateinit var cameraButton: Button
+    private lateinit var calibrationButton: Button
     private lateinit var startPauseButton: Button
 
     private lateinit var backgroundExecutor: ExecutorService
     private var poseHelper: PoseLandmarkerHelper? = null
     private var cameraProvider: ProcessCameraProvider? = null
-    private val smoother = AngleSmoother()
     private val deskTracker = DeskPostureTracker()
-    private var latestAngles: ErgoAngles? = null
+    private val calibrator = BaselineCalibrator()
+
+    private var baseline: PersonalBaseline? = null
+    private var latestReading: PersonalPostureReading? = null
+    private var latestSideProfile = false
 
     private var mode = DeskMode.WORK
     private var focusMinutes = 50
@@ -90,6 +95,7 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
         guideText = findViewById(R.id.guideText)
         scoreText = findViewById(R.id.scoreText)
         scoreSubText = findViewById(R.id.scoreSubText)
+        calibrationText = findViewById(R.id.calibrationText)
         sessionText = findViewById(R.id.sessionText)
         statusText = findViewById(R.id.statusText)
         goodText = findViewById(R.id.goodText)
@@ -98,11 +104,13 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
         modeButton = findViewById(R.id.modeButton)
         focusButton = findViewById(R.id.focusButton)
         cameraButton = findViewById(R.id.cameraButton)
+        calibrationButton = findViewById(R.id.calibrationButton)
         startPauseButton = findViewById(R.id.startPauseButton)
 
         modeButton.setOnClickListener { toggleMode() }
         focusButton.setOnClickListener { chooseFocusTime() }
         cameraButton.setOnClickListener { switchCamera() }
+        calibrationButton.setOnClickListener { startCalibration() }
         startPauseButton.setOnClickListener { toggleSession() }
         findViewById<Button>(R.id.reportButton).setOnClickListener { showReport() }
         findViewById<Button>(R.id.resetButton).setOnClickListener { resetSession() }
@@ -129,23 +137,37 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
         sessionStartedAtMs = 0L
         focusReminderSent = false
         lastBadAlertMs = 0L
-        smoother.reset()
         deskTracker.reset(now)
-        latestAngles = null
+        latestReading = null
 
         scoreText.text = "자세점수 --"
-        scoreSubText.text = "세션을 시작하면 자동으로 계산합니다"
+        scoreSubText.text = if (baseline == null) "먼저 5초 기준 자세를 잡아주세요" else "세션을 시작하면 자동으로 계산합니다"
         statusText.text = "현재 자세: 카메라 위치를 맞춰주세요"
         goodText.text = "바른 자세 --% · 나쁜 자세 --%"
-        badRunText.text = "연속 나쁜 자세 00:00 · 45초부터 조용히 진동"
-        angleDetailText.text = "상세: 목 --° · 몸통 --°"
+        badRunText.text = "연속 나쁜 자세 00:00 · 45초부터 진동"
+        angleDetailText.text = "상세: 머리 전방 --% · 상체 변화 --°"
         startPauseButton.text = "세션 시작"
         modeButton.text = mode.label
         focusButton.text = "집중 ${focusMinutes}분"
         cameraButton.text = if (isFrontCamera) "전면 카메라" else "후면 카메라"
+        calibrationButton.text = "5초 기준 자세 잡기"
+        calibrationText.text = if (baseline == null) "개인 기준: 아직 설정되지 않음" else "개인 기준: 설정됨 · 필요하면 다시 측정"
         guideText.text = "폰을 옆에 세우고 귀·어깨·골반이 보이게 맞춰주세요"
         overlay.clear()
         updateClockUi()
+    }
+
+    private fun startCalibration() {
+        if (isSessionRunning) {
+            Toast.makeText(this, "세션을 일시정지한 뒤 기준 자세를 다시 잡아주세요.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        calibrator.start(now)
+        calibrationButton.text = "측정 중 0%"
+        calibrationText.text = "개인 기준 측정 중 · 편하게 바른 자세를 유지하세요"
+        scoreSubText.text = "측면이 맞는 프레임만 5초 동안 사용합니다"
+        guideText.text = "편하게 바르게 앉아 정면을 보고 5초 유지하세요"
     }
 
     private fun toggleMode() {
@@ -176,13 +198,26 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
     }
 
     private fun toggleSession() {
+        if (calibrator.isActive()) {
+            Toast.makeText(this, "기준 자세 측정이 끝난 뒤 시작해주세요.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (baseline == null) {
+            Toast.makeText(this, "먼저 '5초 기준 자세 잡기'를 눌러 개인 기준을 설정해주세요.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (!latestSideProfile) {
+            Toast.makeText(this, "측면이 잘 보이도록 카메라 위치를 먼저 맞춰주세요.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         val now = SystemClock.elapsedRealtime()
         if (!isSessionRunning) {
             isSessionRunning = true
             sessionStartedAtMs = now
             deskTracker.resume(now)
             startPauseButton.text = "일시정지"
-            scoreSubText.text = "자세를 분석하고 있습니다"
+            scoreSubText.text = "개인 기준 대비 자세 변화를 분석 중"
             Toast.makeText(this, "${mode.label} 시작", Toast.LENGTH_SHORT).show()
         } else {
             sessionAccumulatedMs += now - sessionStartedAtMs
@@ -195,9 +230,22 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
     }
 
     private fun switchCamera() {
+        if (isSessionRunning) {
+            Toast.makeText(this, "세션을 일시정지한 뒤 카메라를 바꿔주세요.", Toast.LENGTH_SHORT).show()
+            return
+        }
         isFrontCamera = !isFrontCamera
         cameraButton.text = if (isFrontCamera) "전면 카메라" else "후면 카메라"
+        invalidateBaseline("카메라가 바뀌어 개인 기준을 다시 잡아야 합니다")
         bindCameraUseCases()
+    }
+
+    private fun invalidateBaseline(message: String) {
+        baseline = null
+        calibrator.cancel()
+        resetSession()
+        calibrationText.text = "개인 기준: 다시 측정 필요"
+        guideText.text = message
     }
 
     private fun setUpCamera() {
@@ -228,7 +276,8 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
         } catch (e: Exception) {
             isFrontCamera = !isFrontCamera
             cameraButton.text = if (isFrontCamera) "전면 카메라" else "후면 카메라"
-            Toast.makeText(this, "선택한 카메라를 사용할 수 없어 다른 카메라로 전환했습니다.", Toast.LENGTH_SHORT).show()
+            baseline = null
+            Toast.makeText(this, "선택한 카메라를 사용할 수 없어 다른 카메라로 전환했습니다. 기준 자세를 다시 잡아주세요.", Toast.LENGTH_LONG).show()
             val fallback = if (isFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
             provider.bindToLifecycle(this, fallback, preview, analyzer)
             preview.setSurfaceProvider(viewFinder.surfaceProvider)
@@ -239,31 +288,79 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
         val pose = resultBundle.result.landmarks().firstOrNull() ?: return
         if (pose.size < 33) return
 
+        val nose = Point2(pose[0].x(), pose[0].y())
         val ear = midpoint(pose, 7, 8)
         val shoulder = midpoint(pose, 11, 12)
         val hip = midpoint(pose, 23, 24)
-        val raw = ErgoAngleCalculator.calculate(ear, shoulder, hip) ?: return
-        val angles = smoother.update(raw)
-        latestAngles = angles
+        val raw = PersonalPostureEngine.measure(nose, ear, shoulder, hip) ?: return
         val now = SystemClock.elapsedRealtime()
-        if (isSessionRunning) deskTracker.update(now, angles)
-        val snap = deskTracker.snapshot()
         val sideProfile = sideProfileHeuristic(pose)
+        latestSideProfile = sideProfile
 
-        if (isSessionRunning && snap.currentBadRunMs >= BAD_POSTURE_ALERT_MS && now - lastBadAlertMs >= BAD_POSTURE_REPEAT_MS) {
+        if (calibrator.isActive()) {
+            val update = calibrator.onFrame(now, raw, sideProfile)
+            runOnUiThread {
+                overlay.setResults(pose, resultBundle.inputImageWidth, resultBundle.inputImageHeight, null, mirrored = isFrontCamera)
+                calibrationButton.text = "측정 중 ${update.progressPct}%"
+                calibrationText.text = "개인 기준 측정 중 ${update.progressPct}%"
+                guideText.text = if (sideProfile) "좋습니다 · 편한 바른 자세를 그대로 유지하세요" else "측면이 더 정확히 보이도록 몸을 돌려주세요 · 타이머가 잠시 멈춥니다"
+            }
+
+            if (update.baseline != null) {
+                baseline = update.baseline
+                deskTracker.reset(now)
+                latestReading = PersonalPostureEngine.evaluate(raw, update.baseline)
+                runOnUiThread {
+                    calibrationButton.text = "기준 자세 다시 잡기"
+                    calibrationText.text = String.format(Locale.KOREA, "개인 기준 설정 완료 · 기준 상체 %.0f°", update.baseline.trunkAbsoluteDeg)
+                    scoreSubText.text = "이제 세션 시작을 누르세요"
+                    guideText.text = "기준 설정 완료 · 평소처럼 업무/공부를 시작하세요"
+                    vibrateCalibrationComplete()
+                    Toast.makeText(this, "5초 개인 기준 설정이 완료됐습니다.", Toast.LENGTH_SHORT).show()
+                }
+            } else if (update.failed) {
+                runOnUiThread {
+                    calibrationButton.text = "5초 기준 자세 잡기"
+                    calibrationText.text = "측면 인식이 충분하지 않았습니다 · 다시 측정해주세요"
+                    guideText.text = "귀·어깨·골반이 한 화면에 보이게 위치를 조정해주세요"
+                }
+            }
+            return
+        }
+
+        val b = baseline
+        if (b == null) {
+            runOnUiThread {
+                overlay.setResults(pose, resultBundle.inputImageWidth, resultBundle.inputImageHeight, null, mirrored = isFrontCamera)
+                guideText.text = if (sideProfile) "측면 인식 양호 · '5초 기준 자세 잡기'를 눌러주세요" else "몸을 더 옆으로 돌려 어깨와 골반이 겹치게 해주세요"
+            }
+            return
+        }
+
+        val reading = PersonalPostureEngine.evaluate(raw, b)
+        latestReading = reading
+        if (isSessionRunning && sideProfile) deskTracker.update(now, reading)
+        val snap = deskTracker.snapshot()
+
+        if (isSessionRunning && sideProfile && snap.currentBadRunMs >= BAD_POSTURE_ALERT_MS && now - lastBadAlertMs >= BAD_POSTURE_REPEAT_MS) {
             lastBadAlertMs = now
             runOnUiThread {
                 vibrateBadPosture()
-                Toast.makeText(this, "자세가 오래 무너졌어요. 목과 몸통을 한 번 펴주세요.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, alertMessage(reading), Toast.LENGTH_SHORT).show()
             }
         }
 
         runOnUiThread {
-            overlay.setResults(pose, resultBundle.inputImageWidth, resultBundle.inputImageHeight, angles, mirrored = isFrontCamera)
-            angleDetailText.text = String.format(Locale.KOREA, "상세: 목 %.0f° · 몸통 %.0f°", angles.neckFlexionDeg, angles.trunkFlexionDeg)
-            val currentLabel = friendlyCurrentLabel(angles)
-            statusText.text = "현재 자세: $currentLabel"
-            statusText.setTextColor(ContextCompat.getColor(this, levelColor(angles.overallLevel)))
+            overlay.setResults(pose, resultBundle.inputImageWidth, resultBundle.inputImageHeight, reading, mirrored = isFrontCamera)
+            angleDetailText.text = String.format(
+                Locale.KOREA,
+                "상세: 머리 전방 +%d%% · 상체 기준대비 +%.0f° · 현재 %.0f°",
+                reading.headForwardDeltaPct,
+                reading.trunkDeltaDeg,
+                reading.trunkAbsoluteDeg
+            )
+            statusText.text = "현재 자세: ${friendlyCurrentLabel(reading)}"
+            statusText.setTextColor(ContextCompat.getColor(this, levelColor(reading.overallLevel)))
 
             if (snap.observedMs >= 2000L) {
                 scoreText.text = "자세점수 ${snap.postureScore}"
@@ -274,9 +371,9 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
             }
 
             guideText.text = when {
-                !sideProfile -> "몸을 더 옆으로 돌려 어깨와 골반이 겹치게 해주세요"
+                !sideProfile -> "측면 인식이 벗어났습니다 · 이 시간은 점수에서 제외됩니다"
                 !isSessionRunning -> "측면 인식 양호 · 세션 시작을 누르면 자세 코칭을 시작합니다"
-                else -> "측면 인식 양호 · 영상 저장 없이 기기에서 실시간 분석 중"
+                else -> "개인 기준 대비 실시간 분석 중 · 영상은 저장하지 않습니다"
             }
         }
     }
@@ -305,26 +402,30 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 
     private fun showReport() {
         val s = deskTracker.snapshot()
-        val a = latestAngles
+        val r = latestReading
+        val b = baseline
         val report = buildString {
             appendLine("${mode.label} · 집중 목표 ${focusMinutes}분")
             appendLine("세션 시간: ${formatDuration(sessionElapsedMs())}")
+            appendLine("개인 기준: ${if (b != null) "설정됨" else "미설정"}")
             if (s.observedMs > 0L) {
                 appendLine("자세점수: ${s.postureScore}/100")
                 appendLine("바른 자세: ${s.goodPct}%")
                 appendLine("나쁜 자세: ${s.badPct}%")
-                appendLine("강한 자세부담 구간: ${s.severePct}%")
+                appendLine("큰 자세 변화 구간: ${s.severePct}%")
+                appendLine("머리 전방 변화가 큰 시간: ${s.headHighPct}%")
+                appendLine("상체 변화가 큰 시간: ${s.trunkHighPct}%")
                 appendLine("최장 연속 나쁜 자세: ${formatDuration(s.maxBadRunMs)}")
-                appendLine()
-                appendLine("[상세 노출]")
-                appendLine("목 ≥20°: ${s.neck20Pct}%")
-                appendLine("몸통 ≥20°: ${s.trunk20Pct}%")
-                appendLine("몸통 ≥45°: ${s.trunk45Pct}%")
-                appendLine("몸통 ≥60°: ${s.trunk60Pct}%")
             } else appendLine("아직 충분한 자세 데이터가 없습니다.")
-            if (a != null) appendLine("현재 측정: 목 %.0f° · 몸통 %.0f°".format(a.neckFlexionDeg, a.trunkFlexionDeg))
+            if (r != null) {
+                appendLine()
+                appendLine("[현재 상세]")
+                appendLine("머리 전방 변화: +${r.headForwardDeltaPct}% (몸통 길이 정규화)")
+                appendLine("상체 기준 대비 변화: +%.0f°".format(r.trunkDeltaDeg))
+                appendLine("현재 상체 절대 기울기: %.0f°".format(r.trunkAbsoluteDeg))
+            }
             appendLine()
-            append("※ 자세점수는 카메라 기반 생활습관 피드백용 휴리스틱이며 질병 발생확률이나 임상 진단값이 아닙니다. 영상은 앱에서 저장하지 않습니다.")
+            append("※ 자세점수와 개인 기준 변화 구간은 생활습관 코칭용 휴리스틱입니다. 질병 발생확률·임상 진단값이 아니며 머리 전방 %는 실제 거리(cm)가 아닙니다. 영상은 저장하지 않습니다.")
         }
 
         AlertDialog.Builder(this)
@@ -338,22 +439,30 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
             }.show()
     }
 
-    private fun friendlyCurrentLabel(a: ErgoAngles): String = when {
-        a.neckFlexionDeg < 20f && a.trunkFlexionDeg < 20f -> "좋아요"
-        a.neckFlexionDeg >= 30f || a.trunkFlexionDeg >= 45f -> "자세 리셋이 필요해요"
-        else -> "조금만 펴주세요"
+    private fun friendlyCurrentLabel(r: PersonalPostureReading): String = when {
+        !r.bad -> "좋아요"
+        r.severe && r.headLevel.rank >= PostureLevel.HIGH.rank && r.trunkLevel.rank >= PostureLevel.HIGH.rank -> "머리와 상체를 한 번 리셋하세요"
+        r.severe -> "자세 리셋이 필요해요"
+        r.headLevel.rank >= PostureLevel.HIGH.rank && r.trunkLevel.rank >= PostureLevel.MILD.rank -> "머리를 당기고 상체를 조금 세워주세요"
+        r.headLevel.rank >= PostureLevel.HIGH.rank -> "머리가 앞으로 많이 나왔어요"
+        else -> "상체를 조금 세워주세요"
+    }
+
+    private fun alertMessage(r: PersonalPostureReading): String = when {
+        r.headLevel.rank >= PostureLevel.HIGH.rank && r.trunkLevel.rank >= PostureLevel.HIGH.rank -> "자세가 45초 이상 무너졌어요. 머리를 당기고 상체를 펴주세요."
+        r.headLevel.rank >= PostureLevel.HIGH.rank -> "머리가 앞으로 나온 자세가 오래 지속됐어요. 가볍게 뒤로 당겨주세요."
+        else -> "상체를 숙인 자세가 오래 지속됐어요. 한 번 편하게 세워주세요."
     }
 
     private fun scoreMessage(score: Int): String = when {
-        score >= 90 -> "아주 안정적으로 앉아 있어요"
-        score >= 80 -> "좋은 자세 흐름을 유지하고 있어요"
-        score >= 65 -> "가끔 자세가 무너져요"
-        score >= 45 -> "앞으로 숙이는 시간이 꽤 길어요"
-        else -> "자세를 자주 리셋해주는 게 좋아요"
+        score >= 90 -> "아주 안정적으로 유지하고 있어요"
+        score >= 75 -> "좋아요 · 가끔 자세만 리셋해보세요"
+        score >= 55 -> "조금 자주 무너져요 · 다음 알림 때 한 번 펴주세요"
+        else -> "오래 숙이는 구간이 많아요 · 자세와 휴식 간격을 조정해보세요"
     }
 
     private fun scoreColor(score: Int): Int = when {
-        score >= 80 -> R.color.good
+        score >= 85 -> R.color.good
         score >= 65 -> R.color.warn
         score >= 45 -> R.color.orange
         else -> R.color.bad
@@ -366,32 +475,15 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
         PostureLevel.VERY_HIGH -> R.color.bad
     }
 
-    private fun midpoint(pose: List<NormalizedLandmark>, a: Int, b: Int): Point2 =
-        Point2((pose[a].x() + pose[b].x()) / 2f, (pose[a].y() + pose[b].y()) / 2f)
+    private fun midpoint(pose: List<NormalizedLandmark>, a: Int, b: Int): Point2 = Point2(
+        (pose[a].x() + pose[b].x()) / 2f,
+        (pose[a].y() + pose[b].y()) / 2f
+    )
 
     private fun sideProfileHeuristic(pose: List<NormalizedLandmark>): Boolean {
         val shoulderGap = abs(pose[11].x() - pose[12].x())
         val hipGap = abs(pose[23].x() - pose[24].x())
         return (shoulderGap + hipGap) / 2f < 0.13f
-    }
-
-    private fun vibrateBadPosture() {
-        val vibrator = getVibrator()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) vibrator.vibrate(VibrationEffect.createOneShot(180L, VibrationEffect.DEFAULT_AMPLITUDE))
-        else @Suppress("DEPRECATION") vibrator.vibrate(180L)
-    }
-
-    private fun vibrateFocusComplete() {
-        val vibrator = getVibrator()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0L, 120L, 100L, 180L), -1))
-        else @Suppress("DEPRECATION") vibrator.vibrate(longArrayOf(0L, 120L, 100L, 180L), -1)
-    }
-
-    private fun getVibrator(): Vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
-    } else {
-        @Suppress("DEPRECATION")
-        getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
     }
 
     private fun formatDuration(ms: Long): String {
@@ -401,6 +493,27 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
         val seconds = totalSeconds % 60L
         return if (hours > 0) String.format(Locale.KOREA, "%02d:%02d:%02d", hours, minutes, seconds)
         else String.format(Locale.KOREA, "%02d:%02d", minutes, seconds)
+    }
+
+    private fun vibrateCalibrationComplete() = vibrate(longArrayOf(0, 50, 60, 50))
+    private fun vibrateBadPosture() = vibrate(longArrayOf(0, 80))
+    private fun vibrateFocusComplete() = vibrate(longArrayOf(0, 120, 100, 120, 100, 180))
+
+    private fun vibrate(pattern: LongArray) {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val manager = getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            manager.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+        if (!vibrator.hasVibrator()) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(pattern, -1)
+        }
     }
 
     override fun onDestroy() {
@@ -414,6 +527,6 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 
     companion object {
         private const val BAD_POSTURE_ALERT_MS = 45_000L
-        private const val BAD_POSTURE_REPEAT_MS = 90_000L
+        private const val BAD_POSTURE_REPEAT_MS = 120_000L
     }
 }
