@@ -35,7 +35,7 @@
         android:paddingEnd="14dp"
         android:paddingTop="9dp"
         android:paddingBottom="9dp"
-        android:text="몸 전체 옆면이 보이도록 2–3 m 거리에서 촬영"
+        android:text="폰을 옆에 세우고 귀·어깨·골반이 보이게 맞춰주세요"
         android:textColor="@color/white"
         android:textSize="13sp"
         app:layout_constraintTop_toTopOf="parent"
@@ -49,7 +49,7 @@
         android:layout_margin="12dp"
         android:background="@drawable/panel_background"
         android:fillViewport="true"
-        android:maxHeight="360dp"
+        android:maxHeight="410dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -67,123 +67,157 @@
                 android:orientation="horizontal">
 
                 <TextView
-                    android:id="@+id/burdenText"
+                    android:id="@+id/scoreText"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="자세 인식 대기 중"
+                    android:text="자세점수 --"
                     android:textColor="@color/white"
-                    android:textSize="21sp"
+                    android:textSize="25sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:id="@+id/sessionText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="측정 00:00"
+                    android:text="00:00 / 50:00"
                     android:textColor="#DDE2EA"
-                    android:textSize="12sp" />
+                    android:textSize="13sp" />
             </LinearLayout>
 
             <TextView
-                android:id="@+id/neckText"
+                android:id="@+id/scoreSubText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="9dp"
-                android:text="목 --°"
+                android:layout_marginTop="3dp"
+                android:text="먼저 5초 기준 자세를 잡아주세요"
+                android:textColor="#DDE2EA"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/calibrationText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="개인 기준: 아직 설정되지 않음"
+                android:textColor="#FFD166"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="현재 자세: 카메라 위치를 맞춰주세요"
                 android:textColor="@color/white"
                 android:textSize="18sp"
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/trunkText"
+                android:id="@+id/goodText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="바른 자세 --% · 나쁜 자세 --%"
+                android:textColor="#E8EDF5"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/badRunText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="3dp"
-                android:text="몸통 --°"
-                android:textColor="@color/white"
-                android:textSize="18sp"
-                android:textStyle="bold" />
+                android:text="연속 나쁜 자세 00:00 · 45초부터 진동"
+                android:textColor="#DDE2EA"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/angleDetailText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="상세: 머리 전방 --% · 상체 변화 --°"
+                android:textColor="#AEB7C4"
+                android:textSize="12sp" />
 
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
-                android:layout_marginTop="9dp"
-                android:layout_marginBottom="7dp"
+                android:layout_marginTop="10dp"
+                android:layout_marginBottom="9dp"
                 android:background="#35FFFFFF" />
-
-            <TextView
-                android:id="@+id/neckExposureText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="목 >20°  00:00 · 0%"
-                android:textColor="#E8EDF5"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/trunkExposureText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="몸통 >20° 0% · >45° 0% · >60° 0%"
-                android:textColor="#E8EDF5"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/staticText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="정적 자세 ≥1분: 없음"
-                android:textColor="#DDE2EA"
-                android:textSize="13sp" />
-
-            <TextView
-                android:id="@+id/repetitionText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="몸통 굴곡 반복: 0회/분"
-                android:textColor="#DDE2EA"
-                android:textSize="13sp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <TextView
-                    android:id="@+id/fpsText"
+                <Button
+                    android:id="@+id/modeButton"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="분석 -- ms"
-                    android:textColor="#AEB7C4"
-                    android:textSize="11sp" />
-
-                <Button
-                    android:id="@+id/reportButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minHeight="38dp"
-                    android:text="요약"
+                    android:text="업무 모드"
                     android:textAllCaps="false" />
 
                 <Button
-                    android:id="@+id/csvButton"
-                    android:layout_width="wrap_content"
+                    android:id="@+id/focusButton"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:minHeight="38dp"
-                    android:text="CSV"
+                    android:layout_weight="1"
+                    android:text="집중 50분"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/cameraButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="전면 카메라"
+                    android:textAllCaps="false" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/calibrationButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="5초 기준 자세 잡기"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/startPauseButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="세션 시작"
+                    android:textAllCaps="false" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/reportButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="세션 요약"
                     android:textAllCaps="false" />
 
                 <Button
                     android:id="@+id/resetButton"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:minHeight="38dp"
+                    android:layout_weight="1"
                     android:text="초기화"
                     android:textAllCaps="false" />
             </LinearLayout>
@@ -191,8 +225,8 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="5dp"
-                android:text="※ 단일 RGB 카메라 기반 자세노출 선별 도구입니다. 질병 위험도·임상 진단값이 아니며, 하중·파지·근사용을 직접 측정하지 않아 완전한 RULA/REBA 점수가 아닙니다."
+                android:layout_marginTop="4dp"
+                android:text="※ 개인 기준 대비 자세 변화에 대한 생활습관 피드백입니다. 머리 전방 %는 실제 cm가 아니라 몸통 길이로 정규화한 지표이며 질병 위험도·임상 진단값이 아닙니다. 영상은 저장하지 않습니다."
                 android:textColor="#9FA6B2"
                 android:textSize="10sp" />
         </LinearLayout>

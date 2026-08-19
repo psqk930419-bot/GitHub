@@ -1,11 +1,14 @@
-name: Build ErgoAngle V2 APK
+name: Build ErgoAngle Desk V3.1 APK
 
 on:
   push:
     branches:
       - ergoangle-apk
+      - ergoangle-consumer-v3
+      - ergoangle-desk-v3-1
     paths:
       - 'ergoapp/**'
+      - 'tools/**'
       - 'build.gradle'
       - 'settings.gradle'
       - '.github/workflows/build-ergoangle.yml'
@@ -15,6 +18,7 @@ on:
       - ergoangle-apk
     paths:
       - 'ergoapp/**'
+      - 'tools/**'
       - 'build.gradle'
       - 'settings.gradle'
       - '.github/workflows/build-ergoangle.yml'
@@ -49,12 +53,14 @@ jobs:
       - name: Download MediaPipe pose model
         run: |
           mkdir -p ergoapp/src/main/assets
-          curl -L --fail --retry 3 \
-            -o ergoapp/src/main/assets/pose_landmarker_lite.task \
+          curl -L --fail --retry 3 -o ergoapp/src/main/assets/pose_landmarker_lite.task \
             https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task
           test -s ergoapp/src/main/assets/pose_landmarker_lite.task
 
-      - name: Build ErgoAngle V2 debug APK
+      - name: Apply scale-normalized side-profile fix
+        run: python tools/apply_side_profile_patch.py
+
+      - name: Build ErgoAngle Desk V3.1 debug APK
         run: gradle --stacktrace :ergoapp:assembleDebug
 
       - name: Collect APK
@@ -62,12 +68,70 @@ jobs:
           mkdir -p dist
           APK=$(find ergoapp/build/outputs/apk/debug -name '*.apk' | head -n 1)
           test -n "$APK"
-          cp "$APK" dist/ErgoAngle-V2-debug.apk
-          sha256sum dist/ErgoAngle-V2-debug.apk > dist/ErgoAngle-V2-debug.apk.sha256
+          cp "$APK" dist/ErgoAngle-Desk-V3.1-debug.apk
+          sha256sum dist/ErgoAngle-Desk-V3.1-debug.apk > dist/ErgoAngle-Desk-V3.1-debug.apk.sha256
+
+      - name: Set up Python for image tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install MediaPipe Python test dependencies
+        run: pip install --no-cache-dir mediapipe==0.10.21 pillow
+
+      - name: Download primary same-person test image
+        run: |
+          mkdir -p testdata
+          curl -L --fail --retry 3 -o testdata/posture_compare.jpg \
+            'https://img.dakohome.co.uk/JoWT-sEEqcpErBp26t6_SA/b4af4bee-4b69-4477-aead-95f40aa62600/thumb'
+          test -s testdata/posture_compare.jpg
+
+      - name: Run primary real-image regression
+        run: python tools/posture_image_test.py
+
+      - name: Verify scale-normalized side-profile gate
+        run: python tools/profile_ratio_probe.py
+
+      - name: Download expanded 5-pair posture suite
+        shell: bash
+        run: |
+          mkdir -p testdata/suite
+          UA='Mozilla/5.0 (X11; Linux x86_64) ErgoAngleTest/1.0'
+          curl -A "$UA" -L --fail --retry 2 -o testdata/suite/physiosunit.jpg \
+            'https://physiosunit.com/wp-content/uploads/2024/03/perfect-sitting-position-for-computer-desktop-ergonomics.jpg' || true
+          curl -A "$UA" -L --fail --retry 2 -o testdata/suite/student_illustration.jpg \
+            'https://banhocthongminhgiare.com/media/upload/editor/images/Tu-the-ngoi-viet-dung-cua-hoc-sinh-.jpg' || true
+          curl -A "$UA" -L --fail --retry 2 -o testdata/suite/rpb_student.jpg \
+            'https://rpb.com.vn/uploads/news/2025_10/t10-bai_6/2a-benefits_of_maintaining_the_correct_sitting_posture_with_the_smart_zico_height-adjustable_desk.jpg' || true
+          curl -A "$UA" -L --fail --retry 2 -o testdata/suite/current_student.png \
+            'https://olhscurrent.org/wp-content/uploads/2022/12/november-article-photo-e1670109061420.png' || true
+          curl -A "$UA" -L --fail --retry 2 -o testdata/suite/sweclockers.jpg \
+            'https://www.sweclockers.com/artikel/32248/og-image' || true
+          find testdata/suite -type f -size +1k -printf '%f %s bytes\n' || true
+
+      - name: Run expanded 10-pose dataset test
+        run: python tools/posture_dataset_test.py
+
+      - name: Run signed forward-trunk probe
+        run: python tools/posture_signed_probe.py
+
+      - name: Upload expanded posture dataset results
+        uses: actions/upload-artifact@v4
+        with:
+          name: ErgoAngle-Desk-V3.1-10Pose-Test
+          path: posture_dataset_output/*
+          retention-days: 30
+
+      - name: Upload primary real-image test outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ErgoAngle-Desk-V3.1-RealImage-Test
+          path: posture_test_output/*
+          retention-days: 30
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ErgoAngle-V2-APK
+          name: ErgoAngle-Desk-V3.1-APK
           path: dist/*
           retention-days: 30
