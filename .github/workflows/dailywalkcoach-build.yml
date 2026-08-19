@@ -1,0 +1,51 @@
+name: Build Daily Walk Coach APK
+
+on:
+  push:
+    branches:
+      - daily-walk-coach
+    paths:
+      - 'dailywalkcoach/**'
+      - '.github/workflows/dailywalkcoach-build.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'dailywalkcoach/**'
+      - '.github/workflows/dailywalkcoach-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore Android source tree
+        shell: bash
+        run: |
+          mkdir -p dailywalkcoach-src
+          base64 -d dailywalkcoach/project.tar.gz.b64 > /tmp/dailywalkcoach-src.tar.gz
+          tar -xzf /tmp/dailywalkcoach-src.tar.gz -C dailywalkcoach-src
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Build debug APK
+        working-directory: dailywalkcoach-src
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DailyWalkCoach-debug-apk
+          path: dailywalkcoach-src/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
