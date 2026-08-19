@@ -1,0 +1,46 @@
+name: ErgoAngle Real Video Simulation
+
+on:
+  pull_request:
+    branches:
+      - ergoangle-desk-v3-1
+    paths:
+      - 'tools/posture_video_test.py'
+      - 'ergoapp/**'
+      - '.github/workflows/video-ergoangle.yml'
+  workflow_dispatch:
+
+jobs:
+  video-sim:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download MediaPipe pose model
+        run: |
+          mkdir -p ergoapp/src/main/assets
+          curl -L --fail --retry 3 -o ergoapp/src/main/assets/pose_landmarker_lite.task \
+            https://storage.googleapis.com/mediapipe-models/pose-landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task || \
+          curl -L --fail --retry 3 -o ergoapp/src/main/assets/pose_landmarker_lite.task \
+            https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task
+          test -s ergoapp/src/main/assets/pose_landmarker_lite.task
+
+      - name: Install video simulation dependencies
+        run: |
+          pip install --no-cache-dir mediapipe==0.10.21 opencv-python-headless matplotlib requests yt-dlp
+
+      - name: Run real desk-work video simulation
+        run: python tools/posture_video_test.py
+
+      - name: Upload video simulation outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ErgoAngle-V3.2-RealVideo-Simulation
+          path: posture_video_output/*
+          retention-days: 30
