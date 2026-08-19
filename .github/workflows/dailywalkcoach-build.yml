@@ -7,6 +7,12 @@ on:
     paths:
       - 'dailywalkcoach/**'
       - '.github/workflows/dailywalkcoach-build.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'dailywalkcoach/**'
+      - '.github/workflows/dailywalkcoach-build.yml'
   workflow_dispatch:
 
 jobs:
