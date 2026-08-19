@@ -1,23 +1,26 @@
 package com.kimwonyup.ergoangle
 
 import kotlin.math.abs
-import kotlin.math.acos
+import kotlin.math.atan2
 import kotlin.math.max
 import kotlin.math.sqrt
 
 data class RawDeskMetrics(
     val headForwardRatio: Float,
+    val trunkForwardDeg: Float,
     val trunkAbsoluteDeg: Float
 )
 
 data class PersonalBaseline(
     val headForwardRatio: Float,
-    val trunkAbsoluteDeg: Float
+    val trunkForwardDeg: Float,
+    val trunkAbsoluteDeg: Float = abs(trunkForwardDeg)
 )
 
 data class PersonalPostureReading(
     val headForwardDeltaRatio: Float,
     val trunkDeltaDeg: Float,
+    val trunkForwardDeg: Float,
     val trunkAbsoluteDeg: Float,
     val headLevel: PostureLevel,
     val trunkLevel: PostureLevel,
@@ -34,17 +37,31 @@ object PersonalPostureEngine {
         val torsoLength = norm(trunk)
         if (torsoLength < 1e-5f) return null
 
-        // Nose direction makes the forward-head metric invariant to whether the user faces left/right.
-        // Mirroring flips both terms, so the resulting signed forward displacement is also mirror-safe.
+        // The nose/ear direction identifies the user's forward direction on screen.
+        // Mirroring flips both the facing direction and horizontal landmark differences,
+        // so the normalized metrics remain stable for front-camera previews.
         val facingSign = if (nose.x >= ear.x) 1f else -1f
         val headForwardRatio = (((ear.x - shoulder.x) * facingSign) / torsoLength).coerceIn(-1f, 1f)
-        val trunkAbsoluteDeg = angleBetween(trunk, Point2(0f, -1f)).coerceIn(0f, 90f)
-        return RawDeskMetrics(headForwardRatio, trunkAbsoluteDeg)
+
+        // Signed trunk angle: positive = trunk moves forward in the direction the user faces,
+        // negative = reclined/backward. This avoids treating a neutral reclined posture as
+        // equivalent to forward flexion just because both have the same absolute angle.
+        val forwardComponent = (shoulder.x - hip.x) * facingSign
+        val verticalUpComponent = -(shoulder.y - hip.y)
+        val trunkForwardDeg = Math.toDegrees(
+            atan2(forwardComponent.toDouble(), verticalUpComponent.toDouble())
+        ).toFloat().coerceIn(-90f, 90f)
+
+        return RawDeskMetrics(
+            headForwardRatio = headForwardRatio,
+            trunkForwardDeg = trunkForwardDeg,
+            trunkAbsoluteDeg = abs(trunkForwardDeg)
+        )
     }
 
     fun evaluate(raw: RawDeskMetrics, baseline: PersonalBaseline): PersonalPostureReading {
         val headDelta = max(0f, raw.headForwardRatio - baseline.headForwardRatio)
-        val trunkDelta = max(0f, raw.trunkAbsoluteDeg - baseline.trunkAbsoluteDeg)
+        val trunkDelta = max(0f, raw.trunkForwardDeg - baseline.trunkForwardDeg)
 
         val headLevel = when {
             headDelta < 0.03f -> PostureLevel.LOW
@@ -53,29 +70,25 @@ object PersonalPostureEngine {
             else -> PostureLevel.VERY_HIGH
         }
 
-        val relativeTrunkLevel = when {
+        // In personalized desk mode, trunk exposure is based on forward change from the user's
+        // own neutral baseline. Absolute angle is retained for reporting only, not as a direct
+        // bad-posture trigger, because comfortable neutral sitting can be mildly reclined.
+        val trunkLevel = when {
             trunkDelta < 5f -> PostureLevel.LOW
             trunkDelta < 12f -> PostureLevel.MILD
             trunkDelta < 22f -> PostureLevel.HIGH
             else -> PostureLevel.VERY_HIGH
         }
-        val absoluteTrunkLevel = when {
-            raw.trunkAbsoluteDeg < 20f -> PostureLevel.LOW
-            raw.trunkAbsoluteDeg < 45f -> PostureLevel.MILD
-            raw.trunkAbsoluteDeg < 60f -> PostureLevel.HIGH
-            else -> PostureLevel.VERY_HIGH
-        }
-        val trunkLevel = if (relativeTrunkLevel.rank >= absoluteTrunkLevel.rank) relativeTrunkLevel else absoluteTrunkLevel
         val overall = if (headLevel.rank >= trunkLevel.rank) headLevel else trunkLevel
 
-        // Consumer alert logic: meaningful personal deviation OR a clearly flexed trunk.
-        // These are coaching heuristics, not disease-risk cutoffs.
-        val bad = headDelta >= 0.07f || trunkDelta >= 12f || raw.trunkAbsoluteDeg >= 20f
-        val severe = headDelta >= 0.12f || trunkDelta >= 22f || raw.trunkAbsoluteDeg >= 45f
+        // Coaching heuristics, not clinical disease-risk cutoffs.
+        val bad = headDelta >= 0.07f || trunkDelta >= 12f
+        val severe = headDelta >= 0.12f || trunkDelta >= 22f
 
         return PersonalPostureReading(
             headForwardDeltaRatio = headDelta,
             trunkDeltaDeg = trunkDelta,
+            trunkForwardDeg = raw.trunkForwardDeg,
             trunkAbsoluteDeg = raw.trunkAbsoluteDeg,
             headLevel = headLevel,
             trunkLevel = trunkLevel,
@@ -83,13 +96,6 @@ object PersonalPostureEngine {
             bad = bad,
             severe = severe
         )
-    }
-
-    private fun angleBetween(a: Point2, b: Point2): Float {
-        val denom = norm(a) * norm(b)
-        if (denom <= 1e-8f) return 0f
-        val cosine = ((a.x * b.x + a.y * b.y) / denom).coerceIn(-1f, 1f)
-        return Math.toDegrees(acos(cosine.toDouble())).toFloat()
     }
 
     private fun norm(v: Point2): Float = sqrt(v.x * v.x + v.y * v.y)
@@ -137,7 +143,7 @@ class BaselineCalibrator(
         if (validSideProfile && metrics != null) {
             validMs += delta
             headSamples += metrics.headForwardRatio
-            trunkSamples += metrics.trunkAbsoluteDeg
+            trunkSamples += metrics.trunkForwardDeg
         }
 
         val progress = ((validMs * 100L) / requiredValidMs).toInt().coerceIn(0, 100)
@@ -148,9 +154,11 @@ class BaselineCalibrator(
             return CalibrationUpdate(false, 100, failed = true)
         }
 
+        val trunkForward = median(trunkSamples)
         val baseline = PersonalBaseline(
             headForwardRatio = median(headSamples),
-            trunkAbsoluteDeg = median(trunkSamples)
+            trunkForwardDeg = trunkForward,
+            trunkAbsoluteDeg = abs(trunkForward)
         )
         return CalibrationUpdate(false, 100, baseline = baseline)
     }
