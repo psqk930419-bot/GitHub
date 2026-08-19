@@ -58,6 +58,9 @@ jobs:
             https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task
           test -s ergoapp/src/main/assets/pose_landmarker_lite.task
 
+      - name: Apply scale-normalized side-profile fix
+        run: python tools/apply_side_profile_patch.py
+
       - name: Build ErgoAngle Desk V3.1 debug APK
         run: gradle --stacktrace :ergoapp:assembleDebug
 
@@ -87,6 +90,9 @@ jobs:
 
       - name: Run real-image MediaPipe V3.1 regression
         run: python tools/posture_image_test.py
+
+      - name: Verify scale-normalized side-profile gate
+        run: python tools/profile_ratio_probe.py
 
       - name: Upload real-image test outputs
         uses: actions/upload-artifact@v4
