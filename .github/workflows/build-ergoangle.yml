@@ -8,14 +8,17 @@ on:
       - ergoangle-desk-v3-1
     paths:
       - 'ergoapp/**'
+      - 'tools/**'
       - 'build.gradle'
       - 'settings.gradle'
       - '.github/workflows/build-ergoangle.yml'
   pull_request:
     branches:
       - main
+      - ergoangle-apk
     paths:
       - 'ergoapp/**'
+      - 'tools/**'
       - 'build.gradle'
       - 'settings.gradle'
       - '.github/workflows/build-ergoangle.yml'
@@ -65,6 +68,32 @@ jobs:
           test -n "$APK"
           cp "$APK" dist/ErgoAngle-Desk-V3.1-debug.apk
           sha256sum dist/ErgoAngle-Desk-V3.1-debug.apk > dist/ErgoAngle-Desk-V3.1-debug.apk.sha256
+
+      - name: Set up Python for real-image test
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install MediaPipe Python test dependencies
+        run: pip install --no-cache-dir mediapipe==0.10.21 pillow
+
+      - name: Download same-person good-vs-slouched test image
+        run: |
+          mkdir -p testdata
+          curl -L --fail --retry 3 \
+            -o testdata/posture_compare.jpg \
+            'https://img.dakohome.co.uk/JoWT-sEEqcpErBp26t6_SA/b4af4bee-4b69-4477-aead-95f40aa62600/thumb'
+          test -s testdata/posture_compare.jpg
+
+      - name: Run real-image MediaPipe V3.1 regression
+        run: python tools/posture_image_test.py
+
+      - name: Upload real-image test outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ErgoAngle-Desk-V3.1-RealImage-Test
+          path: posture_test_output/*
+          retention-days: 30
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
