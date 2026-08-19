@@ -6,6 +6,7 @@ on:
       - ergoangle-desk-v3-1
     paths:
       - 'tools/posture_video_test.py'
+      - 'tools/posture_video_runner.py'
       - 'ergoapp/**'
       - '.github/workflows/video-ergoangle.yml'
   workflow_dispatch:
@@ -26,7 +27,7 @@ jobs:
         run: |
           mkdir -p ergoapp/src/main/assets
           curl -L --fail --retry 3 -o ergoapp/src/main/assets/pose_landmarker_lite.task \
-            https://storage.googleapis.com/mediapipe-models/pose-landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task || \
+            https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task || \
           curl -L --fail --retry 3 -o ergoapp/src/main/assets/pose_landmarker_lite.task \
             https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task
           test -s ergoapp/src/main/assets/pose_landmarker_lite.task
@@ -36,7 +37,7 @@ jobs:
           pip install --no-cache-dir mediapipe==0.10.21 opencv-python-headless matplotlib requests yt-dlp
 
       - name: Run real desk-work video simulation
-        run: python tools/posture_video_test.py
+        run: python tools/posture_video_runner.py
 
       - name: Upload video simulation outputs
         uses: actions/upload-artifact@v4
