@@ -112,6 +112,9 @@ jobs:
       - name: Run expanded 10-pose dataset test
         run: python tools/posture_dataset_test.py
 
+      - name: Run signed forward-trunk probe
+        run: python tools/posture_signed_probe.py
+
       - name: Upload expanded posture dataset results
         uses: actions/upload-artifact@v4
         with:
