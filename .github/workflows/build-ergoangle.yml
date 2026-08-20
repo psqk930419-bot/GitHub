@@ -1,18 +1,9 @@
-name: Build ErgoAngle Desk Verification
+name: Build ErgoAngle Desk V3.4 Verification
 
 on:
-  push:
-    branches:
-      - ergoangle-desk-v3-1
-    paths:
-      - 'ergoapp/**'
-      - 'tools/**'
-      - 'build.gradle'
-      - 'settings.gradle'
-      - '.github/workflows/build-ergoangle.yml'
   pull_request:
     branches:
-      - ergoangle-desk-v3-1
+      - ergoangle-desk-v3-3
     paths:
       - 'ergoapp/**'
       - 'tools/**'
@@ -29,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -54,15 +45,18 @@ jobs:
             https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task
           test -s ergoapp/src/main/assets/pose_landmarker_lite.task
 
-      - name: Apply optional posture patches
+      - name: Apply runtime patches
         run: |
           if [ -f tools/apply_side_profile_patch.py ]; then python tools/apply_side_profile_patch.py; fi
           if [ -f tools/apply_v32_ui_patch.py ]; then python tools/apply_v32_ui_patch.py; fi
+          if [ -f tools/apply_v33_runtime_patch.py ]; then python tools/apply_v33_runtime_patch.py; fi
+          if [ -f tools/apply_v34_target_lock.py ]; then python tools/apply_v34_target_lock.py; fi
+          if [ -f tools/apply_v34_metadata_patch.py ]; then python tools/apply_v34_metadata_patch.py; fi
 
       - name: Run Android unit tests
         run: gradle --stacktrace :ergoapp:testDebugUnitTest
 
-      - name: Build debug APK
+      - name: Build V3.4 APK
         run: gradle --stacktrace :ergoapp:assembleDebug
 
       - name: Collect APK
@@ -70,51 +64,12 @@ jobs:
           mkdir -p dist
           APK=$(find ergoapp/build/outputs/apk/debug -name '*.apk' | head -n 1)
           test -n "$APK"
-          cp "$APK" dist/ErgoAngle-V3.2-tested.apk
-          sha256sum dist/ErgoAngle-V3.2-tested.apk > dist/ErgoAngle-V3.2-tested.apk.sha256
+          cp "$APK" dist/ErgoAngle-Desk-V3.4-tested.apk
+          sha256sum dist/ErgoAngle-Desk-V3.4-tested.apk > dist/ErgoAngle-Desk-V3.4-tested.apk.sha256
 
-      - name: Set up Python for image tests
-        if: ${{ hashFiles('tools/posture_v32_suite.py') != '' }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install image-test dependencies
-        if: ${{ hashFiles('tools/posture_v32_suite.py') != '' }}
-        run: pip install --no-cache-dir mediapipe==0.10.21 pillow
-
-      - name: Download 5-pair posture suite
-        if: ${{ hashFiles('tools/posture_v32_suite.py') != '' }}
-        shell: bash
-        run: |
-          mkdir -p testdata/suite
-          UA='Mozilla/5.0 (X11; Linux x86_64) ErgoAngleTest/1.0'
-          curl -A "$UA" -L --fail --retry 2 -o testdata/suite/physiosunit.jpg \
-            'https://physiosunit.com/wp-content/uploads/2024/03/perfect-sitting-position-for-computer-desktop-ergonomics.jpg'
-          curl -A "$UA" -L --fail --retry 2 -o testdata/suite/student_illustration.jpg \
-            'https://banhocthongminhgiare.com/media/upload/editor/images/Tu-the-ngoi-viet-dung-cua-hoc-sinh-.jpg'
-          curl -A "$UA" -L --fail --retry 2 -o testdata/suite/rpb_student.jpg \
-            'https://rpb.com.vn/uploads/news/2025_10/t10-bai_6/2a-benefits_of_maintaining_the_correct_sitting_posture_with_the_smart_zico_height-adjustable_desk.jpg'
-          curl -A "$UA" -L --fail --retry 2 -o testdata/suite/current_student.png \
-            'https://olhscurrent.org/wp-content/uploads/2022/12/november-article-photo-e1670109061420.png'
-          curl -A "$UA" -L --fail --retry 2 -o testdata/suite/sweclockers.jpg \
-            'https://www.sweclockers.com/artikel/32248/og-image'
-
-      - name: Run V3.2 10-pose regression suite
-        if: ${{ hashFiles('tools/posture_v32_suite.py') != '' }}
-        run: python tools/posture_v32_suite.py
-
-      - name: Upload V3.2 posture outputs
-        if: ${{ hashFiles('tools/posture_v32_suite.py') != '' }}
+      - name: Upload V3.4 APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ErgoAngle-V3.2-10Pose-Test
-          path: posture_v32_output/*
-          retention-days: 30
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ErgoAngle-V3.2-Tested-APK
+          name: ErgoAngle-Desk-V3.4-Tested-APK
           path: dist/*
           retention-days: 30
