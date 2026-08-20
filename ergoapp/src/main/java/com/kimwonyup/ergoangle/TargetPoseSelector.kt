@@ -54,13 +54,16 @@ class TargetPoseSelector(
 
     fun isLocked(): Boolean = lockedTorso != null
 
-    /** Returns the pose list index selected for this frame, or null if the target is absent. */
+    /** Returns the pose list index selected for this frame, or null if the locked target is absent. */
     fun select(features: List<PoseTargetFeature>, nowMs: Long): Int? {
         val candidates = features.filter { it.valid && it.torsoLength >= 0.08f }
         if (candidates.isEmpty()) return null
 
         if (!isLocked()) {
-            if (!calibrationActive) return null
+            if (!calibrationActive) {
+                // Before calibration, show a stable preview candidate but do not create identity state.
+                return candidates.minByOrNull { initialCalibrationScore(it) }?.index
+            }
             val previous = provisional
             val chosen = if (previous == null) {
                 candidates.minByOrNull { initialCalibrationScore(it) }
