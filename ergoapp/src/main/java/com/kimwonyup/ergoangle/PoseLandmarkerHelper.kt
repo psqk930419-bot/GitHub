@@ -19,7 +19,8 @@ class PoseLandmarkerHelper(
     private val listener: LandmarkerListener,
     private val minPoseDetectionConfidence: Float = 0.5f,
     private val minPoseTrackingConfidence: Float = 0.5f,
-    private val minPosePresenceConfidence: Float = 0.5f
+    private val minPosePresenceConfidence: Float = 0.5f,
+    private val numPoses: Int = 3
 ) {
     private var poseLandmarker: PoseLandmarker? = null
 
@@ -34,6 +35,7 @@ class PoseLandmarkerHelper(
                 .build()
             val options = PoseLandmarker.PoseLandmarkerOptions.builder()
                 .setBaseOptions(baseOptions)
+                .setNumPoses(numPoses)
                 .setMinPoseDetectionConfidence(minPoseDetectionConfidence)
                 .setMinTrackingConfidence(minPoseTrackingConfidence)
                 .setMinPosePresenceConfidence(minPosePresenceConfidence)
