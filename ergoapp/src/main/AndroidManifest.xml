@@ -6,7 +6,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="ErgoAngle Desk 3.2"
+        android:label="ErgoAngle Desk 3.3"
         android:supportsRtl="true"
         android:theme="@style/Theme.ErgoAngle">
         <activity
