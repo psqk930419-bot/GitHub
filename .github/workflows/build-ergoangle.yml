@@ -67,6 +67,28 @@ jobs:
           cp "$APK" dist/ErgoAngle-Desk-V3.4-tested.apk
           sha256sum dist/ErgoAngle-Desk-V3.4-tested.apk > dist/ErgoAngle-Desk-V3.4-tested.apk.sha256
 
+      - name: Set up Python for multi-person video test
+        if: ${{ hashFiles('tools/target_lock_video_test.py') != '' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install multi-person video test dependencies
+        if: ${{ hashFiles('tools/target_lock_video_test.py') != '' }}
+        run: pip install --no-cache-dir mediapipe==0.10.21 opencv-python-headless requests
+
+      - name: Run real multi-person target-lock regression
+        if: ${{ hashFiles('tools/target_lock_video_test.py') != '' }}
+        run: python tools/target_lock_video_test.py
+
+      - name: Upload target-lock video results
+        if: ${{ hashFiles('tools/target_lock_video_test.py') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ErgoAngle-V3.4-TargetLock-Video-Test
+          path: target_lock_output/*
+          retention-days: 30
+
       - name: Upload V3.4 APK artifact
         uses: actions/upload-artifact@v4
         with:
